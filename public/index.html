@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini Chat</title>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
+  <style>
+    :root { font: 16px/1.4 system-ui, sans-serif; }
+    body { margin: 0; background:#0b0c10; color:#e5e7eb; display:flex; min-height:100vh; }
+    .panel { margin:auto; width:min(720px, 100% - 2rem); border:1px solid #1f2937; border-radius:16px; overflow:hidden; background:#111827; box-shadow:0 8px 30px rgba(0,0,0,.4); }
+    header { padding:1rem 1.25rem; background:#0f172a; border-bottom:1px solid #1f2937; display:flex; align-items:center; gap:.75rem; }
+    header h1 { margin:0; font-size:1rem; font-weight:600; letter-spacing:.2px; }
+    #chat { height:56vh; overflow:auto; padding:1rem; display:flex; flex-direction:column; gap:.5rem; }
+    .sys { color:#9ca3af; font-size:.9rem; text-align:center; }
+    .msg { display:flex; gap:.5rem; align-items:flex-start; }
+    .bubble { background:#1f2937; border:1px solid #374151; padding:.6rem .75rem; border-radius:12px; max-width:80%; }
+    .meta { font-size:.75rem; color:#93c5fd; margin-bottom:.2rem; }
+    form { display:flex; gap:.5rem; padding:1rem; border-top:1px solid #1f2937; background:#0f172a; }
+    input, button { font: inherit; }
+    #name { width: 11rem; }
+    #text { flex:1; }
+    input { padding:.6rem .7rem; border-radius:.6rem; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
+    input:focus { outline:2px solid #2563eb33; border-color:#2563eb; }
+    button { padding:.6rem .9rem; border-radius:.6rem; border:1px solid #3b82f6; background:#1d4ed8; color:white; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    #typing { color:#9ca3af; font-size:.85rem; padding:0 1rem 1rem; min-height:1.2rem; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <header>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 5h16v11H5.17L4 17.17V5z" stroke="#93c5fd" stroke-width="1.5"/><path d="M8 9h8M8 12h5" stroke="#93c5fd" stroke-width="1.5"/></svg>
+      <h1>General chat</h1>
+    </header>
+
+    <div id="chat" aria-live="polite"></div>
+    <div id="typing"></div>
+
+    <form id="form" autocomplete="off">
+      <input id="name" placeholder="Your name" required />
+      <input id="text" placeholder="Type a message…" />
+      <button id="send" type="submit">Send</button>
+    </form>
+  </div>
+
+  <script>
+    const socket = io();
+
+    const chat = document.getElementById("chat");
+    const typing = document.getElementById("typing");
+    const form = document.getElementById("form");
+    const nameInput = document.getElementById("name");
+    const textInput = document.getElementById("text");
+    const sendBtn = document.getElementById("send");
+
+    let registered = false;
+    let typingTimeout;
+
+    function addSystem(line) {
+      const el = document.createElement("div");
+      el.className = "sys";
+      el.textContent = line;
+      chat.appendChild(el);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function addMessage({ user, text, ts }) {
+      const row = document.createElement("div");
+      row.className = "msg";
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' });
+      meta.textContent = `${user} • ${time}`;
+
+      const body = document.createElement("div");
+      body.textContent = text;
+
+      bubble.appendChild(meta);
+      bubble.appendChild(body);
+      row.appendChild(bubble);
+      chat.appendChild(row);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    // initial register on first submit
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim() || "Anonymous";
+      const text = textInput.value.trim();
+
+      if (!registered) {
+        socket.emit("register", name, (res) => {
+          if (res?.ok) {
+            registered = true;
+            nameInput.disabled = true;
+            addSystem(`You joined as ${res.name}`);
+            if (text) {
+              socket.emit("message", text);
+              textInput.value = "";
+            }
+          }
+        });
+        return;
+      }
+
+      if (text) {
+        socket.emit("message", text);
+        textInput.value = "";
+      }
+    });
+
+    // typing indicator
+    textInput.addEventListener("input", () => {
+      if (!registered) return;
+      socket.emit("typing", true);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => socket.emit("typing", false), 900);
+    });
+
+    // socket events
+    socket.on("system", addSystem);
+    socket.on("message", addMessage);
+    socket.on("typing", ({ user, isTyping }) => {
+      typing.textContent = isTyping ? `${user} is typing…` : "";
+    });
+
+    // helpful UX: send on Enter, keep Shift+Enter for newline
+    textInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+      }
+    });
+  </script>
+</body>
+</html>
